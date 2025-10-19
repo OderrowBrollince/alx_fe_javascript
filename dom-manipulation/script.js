@@ -26,15 +26,18 @@ function init() {
   // Create the add quote form
   createAddQuoteForm();
   
-  // Populate category filter
-  populateCategoryFilter();
+  // Populate category filter with stored categories
+  populateCategories();
+  
+  // Restore last selected category filter
+  restoreLastSelectedCategory();
   
   // Update statistics
   updateStats();
   
   // Add event listeners
   document.getElementById('newQuote').addEventListener('click', showRandomQuote);
-  document.getElementById('categoryFilter').addEventListener('change', showRandomQuote);
+  document.getElementById('categoryFilter').addEventListener('change', filterQuotes);
   document.getElementById('exportQuotes').addEventListener('click', exportToJsonFile);
   document.getElementById('importFile').addEventListener('change', importFromJsonFile);
   
@@ -151,8 +154,120 @@ function restoreLastQuote() {
 }
 
 /**
+ * Populates the category filter dropdown with unique categories from quotes
+ * This is the main function for dynamic category population as per Task 2
+ */
+function populateCategories() {
+  const categoryFilter = document.getElementById('categoryFilter');
+  const currentValue = categoryFilter.value;
+  
+  // Extract unique categories from quotes array and sort them
+  const categories = [...new Set(quotes.map(q => q.category))].sort();
+  
+  // Clear existing options except "All Categories"
+  categoryFilter.innerHTML = '<option value="all">All Categories</option>';
+  
+  // Dynamically create and append category options
+  categories.forEach(category => {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = category;
+    categoryFilter.appendChild(option);
+  });
+  
+  // Restore previous selection if it still exists
+  const options = Array.from(categoryFilter.options).map(opt => opt.value);
+  if (options.includes(currentValue)) {
+    categoryFilter.value = currentValue;
+  } else {
+    categoryFilter.value = 'all';
+  }
+  
+  console.log('Categories populated:', categories.length);
+}
+
+/**
+ * Filters and displays quotes based on the selected category
+ * Saves the selected category to localStorage for persistence across sessions
+ * This is the main filtering function as per Task 2
+ */
+function filterQuotes() {
+  const categoryFilter = document.getElementById('categoryFilter');
+  const selectedCategory = categoryFilter.value;
+  
+  // Save selected category to localStorage for persistence
+  saveLastSelectedCategory(selectedCategory);
+  
+  // Update the display to show filtered quotes
+  showRandomQuote();
+  
+  // Update statistics to reflect filtered view
+  updateFilteredStats(selectedCategory);
+  
+  console.log('Filtering by category:', selectedCategory);
+}
+
+/**
+ * Saves the last selected category to localStorage
+ * Ensures filter preference persists across sessions
+ */
+function saveLastSelectedCategory(category) {
+  try {
+    localStorage.setItem(LAST_CATEGORY_KEY, category);
+    console.log('Saved category filter to localStorage:', category);
+  } catch (error) {
+    console.error('Error saving category filter:', error);
+  }
+}
+
+/**
+ * Restores the last selected category from localStorage
+ * Called on page load to restore user's filter preference
+ */
+function restoreLastSelectedCategory() {
+  const lastCategory = localStorage.getItem(LAST_CATEGORY_KEY);
+  
+  if (lastCategory) {
+    const categoryFilter = document.getElementById('categoryFilter');
+    const options = Array.from(categoryFilter.options).map(opt => opt.value);
+    
+    // Only restore if the category still exists in the dropdown
+    if (options.includes(lastCategory)) {
+      categoryFilter.value = lastCategory;
+      console.log('Restored last selected category:', lastCategory);
+      
+      // Update display to reflect restored filter
+      updateFilteredStats(lastCategory);
+    }
+  }
+}
+
+/**
+ * Updates statistics to show filtered quote count
+ * Provides context about current filter state
+ */
+function updateFilteredStats(selectedCategory) {
+  const statsDiv = document.getElementById('stats');
+  const categoryCount = new Set(quotes.map(q => q.category)).size;
+  
+  if (selectedCategory === 'all') {
+    statsDiv.innerHTML = `
+      <strong>Total Quotes:</strong> ${quotes.length} | 
+      <strong>Categories:</strong> ${categoryCount}
+    `;
+  } else {
+    const filteredCount = quotes.filter(q => q.category === selectedCategory).length;
+    statsDiv.innerHTML = `
+      <strong>Showing:</strong> ${filteredCount} of ${quotes.length} quotes | 
+      <strong>Category:</strong> ${selectedCategory} | 
+      <strong>Total Categories:</strong> ${categoryCount}
+    `;
+  }
+}
+
+/**
  * Displays a random quote from the quotes array
- * Implements advanced DOM manipulation to create quote elements
+ * Respects the current category filter
  */
 function showRandomQuote() {
   const categoryFilter = document.getElementById('categoryFilter');
@@ -270,7 +385,7 @@ function createAddQuoteForm() {
 
 /**
  * Adds a new quote to the quotes array
- * Demonstrates array manipulation and form validation
+ * Updates categories dropdown if new category is introduced (Task 2 requirement)
  */
 function addQuote() {
   const quoteText = document.getElementById('newQuoteText');
@@ -284,6 +399,10 @@ function addQuote() {
     alert('Please fill in both the quote text and category!');
     return;
   }
+  
+  // Check if this is a new category
+  const existingCategories = [...new Set(quotes.map(q => q.category))];
+  const isNewCategory = !existingCategories.includes(category);
   
   // Create new quote object
   const newQuote = {
@@ -301,52 +420,30 @@ function addQuote() {
   quoteText.value = '';
   quoteCategory.value = '';
   
-  // Update category filter
-  populateCategoryFilter();
+  // Update category filter - this will add the new category if it doesn't exist
+  if (isNewCategory) {
+    console.log('New category detected:', category);
+  }
+  populateCategories();
   
   // Update statistics
   updateStats();
   
   // Show success feedback
-  showNotification('Quote added successfully!');
+  showNotification(isNewCategory ? 
+    `Quote added with new category "${category}"!` : 
+    'Quote added successfully!');
   
-  // Optionally display the newly added quote
-  lastQuoteIndex = -1; // Reset to allow new quote to be shown
+  // Set filter to the new quote's category and display it
+  lastQuoteIndex = -1;
   document.getElementById('categoryFilter').value = category;
+  saveLastSelectedCategory(category);
   showRandomQuote();
-}
-
-/**
- * Populates the category filter dropdown with unique categories
- * Demonstrates dynamic option creation
- */
-function populateCategoryFilter() {
-  const categoryFilter = document.getElementById('categoryFilter');
-  const currentValue = categoryFilter.value;
-  
-  // Get unique categories
-  const categories = ['all', ...new Set(quotes.map(q => q.category))];
-  
-  // Clear existing options
-  categoryFilter.innerHTML = '';
-  
-  // Create and append options
-  categories.forEach(category => {
-    const option = document.createElement('option');
-    option.value = category === 'all' ? 'all' : category;
-    option.textContent = category === 'all' ? 'All Categories' : category;
-    categoryFilter.appendChild(option);
-  });
-  
-  // Restore previous selection if it still exists
-  if (categories.includes(currentValue)) {
-    categoryFilter.value = currentValue;
-  }
+  updateFilteredStats(category);
 }
 
 /**
  * Updates and displays statistics about the quote collection
- * Demonstrates dynamic content update
  */
 function updateStats() {
   const statsDiv = document.getElementById('stats');
@@ -401,7 +498,7 @@ function exportToJsonFile() {
 
 /**
  * Imports quotes from a JSON file
- * Reads file content and updates the quotes array
+ * Reads file content and updates the quotes array and categories
  */
 function importFromJsonFile(event) {
   const file = event.target.files[0];
@@ -413,7 +510,7 @@ function importFromJsonFile(event) {
   // Validate file type
   if (!file.name.endsWith('.json')) {
     alert('Please select a valid JSON file!');
-    event.target.value = ''; // Reset file input
+    event.target.value = '';
     return;
   }
   
@@ -471,8 +568,8 @@ function importFromJsonFile(event) {
       // Save to localStorage
       saveQuotes();
       
-      // Update UI
-      populateCategoryFilter();
+      // Update UI - repopulate categories in case new ones were added
+      populateCategories();
       updateStats();
       showRandomQuote();
       

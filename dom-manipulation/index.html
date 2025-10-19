@@ -143,6 +143,23 @@
       background: white;
       cursor: pointer;
       color: #333;
+      transition: all 0.3s ease;
+    }
+
+    .category-filter select:hover {
+      border-color: #764ba2;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+    }
+
+    .category-filter select:focus {
+      outline: none;
+      border-color: #764ba2;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .category-filter label {
+      display: inline-block;
+      margin-bottom: 5px;
     }
 
     .stats {
