@@ -4,8 +4,9 @@ let quotes = [];
 // Track currently displayed quote index to avoid repetition
 let lastQuoteIndex = -1;
 
-// Local Storage Key
+// Local Storage Keys
 const QUOTES_STORAGE_KEY = 'dynamicQuotesApp';
+const LAST_CATEGORY_KEY = 'lastSelectedCategory';
 
 // Session Storage Keys
 const LAST_QUOTE_KEY = 'lastViewedQuote';
