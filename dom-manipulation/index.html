@@ -173,6 +173,19 @@
     <div class="stats" id="stats"></div>
 
     <div class="form-section" id="addQuoteSection"></div>
+
+    <div class="form-section" id="importExportSection">
+      <h2>Import/Export Quotes</h2>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button id="exportQuotes" style="flex: 1; min-width: 200px;">Export to JSON</button>
+        <label for="importFile" style="flex: 1; min-width: 200px;">
+          <input type="file" id="importFile" accept=".json" style="display: none;" />
+          <button type="button" onclick="document.getElementById('importFile').click()" style="width: 100%;">
+            Import from JSON
+          </button>
+        </label>
+      </div>
+    </div>
   </div>
 
   <script src="script.js"></script>
