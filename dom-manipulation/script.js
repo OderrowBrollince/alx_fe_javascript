@@ -7,10 +7,19 @@ let lastQuoteIndex = -1;
 // Local Storage Keys
 const QUOTES_STORAGE_KEY = 'dynamicQuotesApp';
 const LAST_CATEGORY_KEY = 'lastSelectedCategory';
+const SERVER_QUOTES_KEY = 'serverQuotes';
+const LAST_SYNC_TIME_KEY = 'lastSyncTime';
+const AUTO_SYNC_ENABLED_KEY = 'autoSyncEnabled';
 
 // Session Storage Keys
 const LAST_QUOTE_KEY = 'lastViewedQuote';
 const SESSION_START_KEY = 'sessionStartTime';
+
+// Server configuration
+const SERVER_URL = 'https://jsonplaceholder.typicode.com/posts';
+let autoSyncInterval = null;
+const SYNC_INTERVAL = 30000; // 30 seconds
+let pendingConflicts = null;
 
 /**
  * Initialize the application
@@ -40,6 +49,13 @@ function init() {
   document.getElementById('categoryFilter').addEventListener('change', filterQuotes);
   document.getElementById('exportQuotes').addEventListener('click', exportToJsonFile);
   document.getElementById('importFile').addEventListener('change', importFromJsonFile);
+  document.getElementById('syncNow').addEventListener('click', syncWithServer);
+  document.getElementById('toggleAutoSync').addEventListener('click', toggleAutoSync);
+  document.getElementById('resolveConflict').addEventListener('click', () => resolveConflict(true));
+  document.getElementById('keepLocal').addEventListener('click', () => resolveConflict(false));
+  
+  // Initialize sync system
+  initializeSyncSystem();
   
   // Try to show last viewed quote or a random one
   const lastQuote = restoreLastQuote();
@@ -653,6 +669,381 @@ style.textContent = `
   }
 `;
 document.head.appendChild(style);
+
+// ============================================
+// SERVER SYNCHRONIZATION FUNCTIONS
+// ============================================
+
+/**
+ * Initializes the server synchronization system
+ * Sets up auto-sync if enabled and updates UI
+ */
+function initializeSyncSystem() {
+  // Check if auto-sync was enabled in previous session
+  const autoSyncEnabled = localStorage.getItem(AUTO_SYNC_ENABLED_KEY) === 'true';
+  
+  if (autoSyncEnabled) {
+    startAutoSync();
+    document.getElementById('toggleAutoSync').textContent = 'Disable Auto-Sync';
+    document.getElementById('toggleAutoSync').style.background = '#28a745';
+  }
+  
+  // Update last sync time display
+  updateSyncStatusDisplay();
+  
+  console.log('Sync system initialized. Auto-sync:', autoSyncEnabled);
+}
+
+/**
+ * Fetches quotes from the simulated server
+ * Uses JSONPlaceholder API to simulate server data
+ */
+async function fetchQuotesFromServer() {
+  try {
+    updateSyncStatus('Fetching from server...', 'info');
+    
+    // Fetch data from JSONPlaceholder (simulating server)
+    const response = await fetch(SERVER_URL);
+    
+    if (!response.ok) {
+      throw new Error(`Server responded with status: ${response.status}`);
+    }
+    
+    const serverData = await response.json();
+    
+    // Transform server data to quote format
+    // Taking first 10 posts and converting them to quotes
+    const serverQuotes = serverData.slice(0, 10).map(post => ({
+      text: post.title,
+      category: post.userId % 2 === 0 ? 'Server' : 'Remote',
+      serverId: post.id,
+      serverTimestamp: Date.now()
+    }));
+    
+    console.log('Fetched from server:', serverQuotes.length, 'quotes');
+    return serverQuotes;
+    
+  } catch (error) {
+    console.error('Error fetching from server:', error);
+    updateSyncStatus('Failed to fetch from server', 'error');
+    showNotification('Failed to sync with server: ' + error.message);
+    return null;
+  }
+}
+
+/**
+ * Posts local quotes to the simulated server
+ * Simulates sending data to server for backup
+ */
+async function postQuotesToServer(quotesToPost) {
+  try {
+    updateSyncStatus('Posting to server...', 'info');
+    
+    // Simulate posting to server
+    const response = await fetch(SERVER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        quotes: quotesToPost,
+        timestamp: Date.now()
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server responded with status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('Posted to server successfully:', result);
+    return true;
+    
+  } catch (error) {
+    console.error('Error posting to server:', error);
+    return false;
+  }
+}
+
+/**
+ * Main synchronization function
+ * Fetches server data, detects conflicts, and syncs
+ */
+async function syncWithServer() {
+  console.log('Starting sync with server...');
+  updateSyncStatus('Syncing...', 'info');
+  
+  // Fetch quotes from server
+  const serverQuotes = await fetchQuotesFromServer();
+  
+  if (!serverQuotes) {
+    return; // Error already handled in fetch function
+  }
+  
+  // Get current local quotes
+  const localQuotes = [...quotes];
+  
+  // Save server quotes to compare later
+  localStorage.setItem(SERVER_QUOTES_KEY, JSON.stringify(serverQuotes));
+  
+  // Detect conflicts
+  const conflicts = detectConflicts(localQuotes, serverQuotes);
+  
+  if (conflicts.hasConflicts) {
+    // Show conflict notification
+    showConflictNotification(conflicts);
+    updateSyncStatus('Conflicts detected', 'warning');
+  } else {
+    // No conflicts, merge data (server takes precedence)
+    mergeQuotes(serverQuotes);
+    
+    // Post local quotes to server
+    await postQuotesToServer(quotes);
+    
+    // Update last sync time
+    const now = new Date().toISOString();
+    localStorage.setItem(LAST_SYNC_TIME_KEY, now);
+    
+    updateSyncStatus('Synced successfully', 'success');
+    updateSyncStatusDisplay();
+    showNotification('Successfully synced with server!');
+    
+    // Update UI
+    populateCategories();
+    updateStats();
+    showRandomQuote();
+  }
+  
+  console.log('Sync completed');
+}
+
+/**
+ * Detects conflicts between local and server data
+ * Returns conflict information
+ */
+function detectConflicts(localQuotes, serverQuotes) {
+  const lastSyncTime = localStorage.getItem(LAST_SYNC_TIME_KEY);
+  const previousServerQuotes = localStorage.getItem(SERVER_QUOTES_KEY);
+  
+  // If this is the first sync, no conflicts
+  if (!lastSyncTime || !previousServerQuotes) {
+    return { hasConflicts: false };
+  }
+  
+  const prevServerQuotes = JSON.parse(previousServerQuotes);
+  
+  // Check if local quotes were modified since last sync
+  const localModified = localQuotes.length !== prevServerQuotes.length;
+  
+  // Check if server quotes changed
+  const serverModified = JSON.stringify(serverQuotes) !== JSON.stringify(prevServerQuotes);
+  
+  // Conflict exists if both were modified
+  if (localModified && serverModified) {
+    return {
+      hasConflicts: true,
+      localCount: localQuotes.length,
+      serverCount: serverQuotes.length,
+      prevServerCount: prevServerQuotes.length,
+      localQuotes: localQuotes,
+      serverQuotes: serverQuotes
+    };
+  }
+  
+  return { hasConflicts: false };
+}
+
+/**
+ * Shows conflict notification to user
+ * Provides options to resolve conflict
+ */
+function showConflictNotification(conflicts) {
+  pendingConflicts = conflicts;
+  
+  const notification = document.getElementById('conflictNotification');
+  const message = document.getElementById('conflictMessage');
+  
+  message.textContent = `
+    Local data has ${conflicts.localCount} quotes, 
+    but server has ${conflicts.serverCount} quotes. 
+    Both were modified since last sync.
+  `;
+  
+  notification.style.display = 'block';
+  
+  // Scroll to notification
+  notification.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/**
+ * Resolves conflicts based on user choice
+ * @param {boolean} useServerVersion - True to use server data, false to keep local
+ */
+function resolveConflict(useServerVersion) {
+  if (!pendingConflicts) {
+    return;
+  }
+  
+  if (useServerVersion) {
+    // Accept server version
+    mergeQuotes(pendingConflicts.serverQuotes, true);
+    showNotification('Accepted server version. Local changes overwritten.');
+    console.log('Conflict resolved: Server version accepted');
+  } else {
+    // Keep local version
+    showNotification('Kept local version. Server not updated.');
+    console.log('Conflict resolved: Local version kept');
+  }
+  
+  // Update last sync time
+  const now = new Date().toISOString();
+  localStorage.setItem(LAST_SYNC_TIME_KEY, now);
+  
+  // Save current server quotes
+  localStorage.setItem(SERVER_QUOTES_KEY, JSON.stringify(pendingConflicts.serverQuotes));
+  
+  // Hide notification
+  document.getElementById('conflictNotification').style.display = 'none';
+  pendingConflicts = null;
+  
+  // Update UI
+  updateSyncStatus('Conflict resolved', 'success');
+  updateSyncStatusDisplay();
+  populateCategories();
+  updateStats();
+  showRandomQuote();
+}
+
+/**
+ * Merges server quotes with local quotes
+ * Server data takes precedence by default
+ */
+function mergeQuotes(serverQuotes, replaceAll = false) {
+  if (replaceAll) {
+    // Complete replacement
+    quotes = [...serverQuotes];
+  } else {
+    // Smart merge: Add server quotes that don't exist locally
+    const localQuoteKeys = new Set(
+      quotes.map(q => `${q.text}|${q.category}`)
+    );
+    
+    serverQuotes.forEach(serverQuote => {
+      const key = `${serverQuote.text}|${serverQuote.category}`;
+      if (!localQuoteKeys.has(key)) {
+        quotes.push(serverQuote);
+      }
+    });
+  }
+  
+  // Save merged quotes
+  saveQuotes();
+  console.log('Quotes merged. Total:', quotes.length);
+}
+
+/**
+ * Toggles automatic synchronization
+ */
+function toggleAutoSync() {
+  const button = document.getElementById('toggleAutoSync');
+  const isEnabled = autoSyncInterval !== null;
+  
+  if (isEnabled) {
+    stopAutoSync();
+    button.textContent = 'Enable Auto-Sync';
+    button.style.background = '#6c757d';
+    showNotification('Auto-sync disabled');
+  } else {
+    startAutoSync();
+    button.textContent = 'Disable Auto-Sync';
+    button.style.background = '#28a745';
+    showNotification('Auto-sync enabled (every 30 seconds)');
+  }
+}
+
+/**
+ * Starts automatic synchronization
+ */
+function startAutoSync() {
+  if (autoSyncInterval) {
+    return; // Already running
+  }
+  
+  // Sync immediately
+  syncWithServer();
+  
+  // Set up periodic sync
+  autoSyncInterval = setInterval(() => {
+    console.log('Auto-sync triggered');
+    syncWithServer();
+  }, SYNC_INTERVAL);
+  
+  // Save preference
+  localStorage.setItem(AUTO_SYNC_ENABLED_KEY, 'true');
+  
+  console.log('Auto-sync started (interval:', SYNC_INTERVAL, 'ms)');
+}
+
+/**
+ * Stops automatic synchronization
+ */
+function stopAutoSync() {
+  if (autoSyncInterval) {
+    clearInterval(autoSyncInterval);
+    autoSyncInterval = null;
+    
+    // Save preference
+    localStorage.setItem(AUTO_SYNC_ENABLED_KEY, 'false');
+    
+    console.log('Auto-sync stopped');
+  }
+}
+
+/**
+ * Updates the sync status display
+ * @param {string} message - Status message
+ * @param {string} type - 'info', 'success', 'warning', 'error'
+ */
+function updateSyncStatus(message, type = 'info') {
+  const statusText = document.getElementById('syncStatusText');
+  statusText.textContent = message;
+  
+  // Color coding
+  const colors = {
+    info: '#007bff',
+    success: '#28a745',
+    warning: '#ffc107',
+    error: '#dc3545'
+  };
+  
+  statusText.style.color = colors[type] || colors.info;
+}
+
+/**
+ * Updates the sync status display with time and count
+ */
+function updateSyncStatusDisplay() {
+  const lastSyncTime = localStorage.getItem(LAST_SYNC_TIME_KEY);
+  const serverQuotes = localStorage.getItem(SERVER_QUOTES_KEY);
+  
+  // Update last sync time
+  const lastSyncElement = document.getElementById('lastSyncTime');
+  if (lastSyncTime) {
+    const date = new Date(lastSyncTime);
+    lastSyncElement.textContent = date.toLocaleString();
+  } else {
+    lastSyncElement.textContent = 'Never';
+  }
+  
+  // Update server quote count
+  const serverCountElement = document.getElementById('serverQuoteCount');
+  if (serverQuotes) {
+    const count = JSON.parse(serverQuotes).length;
+    serverCountElement.textContent = count;
+  } else {
+    serverCountElement.textContent = '0';
+  }
+}
 
 // Initialize the application when DOM is fully loaded
 if (document.readyState === 'loading') {

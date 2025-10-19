@@ -207,6 +207,31 @@
         </label>
       </div>
     </div>
+
+    <div class="form-section" id="syncSection">
+      <h2>Server Synchronization</h2>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+        <button id="syncNow" style="flex: 1; min-width: 200px;">
+          Sync with Server
+        </button>
+        <button id="toggleAutoSync" style="flex: 1; min-width: 200px; background: #6c757d;">
+          Enable Auto-Sync
+        </button>
+      </div>
+      <div id="syncStatus"
+        style="padding: 10px; background: #e9ecef; border-radius: 8px; font-size: 0.9em; color: #495057;">
+        <strong>Status:</strong> <span id="syncStatusText">Not synced yet</span><br>
+        <strong>Last Sync:</strong> <span id="lastSyncTime">Never</span><br>
+        <strong>Server Quotes:</strong> <span id="serverQuoteCount">0</span>
+      </div>
+      <div id="conflictNotification"
+        style="display: none; margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 8px;">
+        <strong>⚠️ Conflicts Detected!</strong>
+        <p id="conflictMessage" style="margin: 10px 0;"></p>
+        <button id="resolveConflict" style="margin-right: 10px;">Accept Server Version</button>
+        <button id="keepLocal" style="background: #6c757d;">Keep Local Version</button>
+      </div>
+    </div>
   </div>
 
   <script src="script.js"></script>
